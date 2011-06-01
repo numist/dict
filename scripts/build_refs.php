@@ -8,16 +8,28 @@ assert('isset($argc)');
 assert('gc_enabled()');
 
 require("../lib/simplehtmldom.class");
-require("../lib/dictionary.class.inc");
 
 $db = new PDO("sqlite:../words.db");
+
+// will not overwrite an existing refs table. 
+$sql = "CREATE TABLE refs(term TEXT, type TEXT, wordid INTEGER)";
+if ($db->exec($sql) === false) {
+    $err = $db->errorInfo();
+    trigger_error("failed: ".$err[0].": ".$err[2]." (".$err[1].")", E_USER_ERROR);
+}
 
 function add_ref($element, $row, $type) {
   global $db;
   
+  $term = str_replace("'", "''", $element->innertext);
+  $type = str_replace("'", "''", $type);
   
-  //CREATE TABLE refs(word TEXT, type TEXT, wordid INTEGER);
-  echo $element->innertext." -> ".$row['word']." <".$row['rowid']."> (".$type.")\n";
+  $sql = "INSERT INTO refs VALUES('$term', '$type', ${row['rowid']})";
+  echo $sql." -- ${row['word']}\n";
+  if($db->exec($sql) === false) {
+      $err = $db->errorInfo();
+      trigger_error("failed: ".$err[0].": ".$err[2]." (".$err[1].")", E_USER_ERROR);
+  }
 }
 
 $sql = "SELECT rowid, * FROM words";
@@ -25,10 +37,9 @@ $res = $db->query($sql);
 assert('is_object($res)');
 
 while($row = $res->fetch(PDO::FETCH_ASSOC)) {
-  $refs = array();
   $html = str_get_html($row['data']);
 
-  // o:l filter  
+  // o:l filter
   foreach($html->find("o:l") as $element) {
     foreach($element->find("o:v") as $crap) {
       $crap->outertext = " ";
@@ -182,10 +193,6 @@ redirects:
     universal joint also universal coupling
     derivatives (see: pig)
     phrases? (see: as)
-    
-    CREATE TABLE refs(word TEXT, type TEXT, wordid INTEGER);
-    CREATE TABLE words(word TEXT, type TEXT, data TEXT);
-    
  */
 
 ?>
