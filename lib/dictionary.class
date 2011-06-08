@@ -130,7 +130,7 @@ class Dictionary {
     }
     if(defined("DEBUG")) {
       $xmlr->setParserProperty(XMLReader::VALIDATE, true);
-      assert('$xmlr->isValid()');
+      $xmlr->isValid();
     }
     
     $xmlw = new XMLWriter();

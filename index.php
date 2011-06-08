@@ -1,7 +1,16 @@
 <?php
 
 define("DEBUG", true);
-error_reporting(E_ALL | E_STRICT);
+
+if(defined("DEBUG")) {
+  assert_options(ASSERT_ACTIVE,   true);
+  assert_options(ASSERT_WARNING,  true);
+  assert_options(ASSERT_BAIL,     true);
+  error_reporting(E_ALL | E_STRICT);
+} else {
+  assert_options(ASSERT_ACTIVE, false);
+  error_reporting(0);
+}
 
 function indent($line, $level) {
   $str = "";
