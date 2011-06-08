@@ -91,7 +91,8 @@ class Dictionary {
     unset($res);
     
     if(count($defs) <= 1) {
-        return;
+      $this->defs = $defs;
+      return;
     }
     
     // order-preserving slow sort
@@ -141,8 +142,8 @@ class Dictionary {
 
     if(defined("DEBUG")) {
       echo "<!--\ndef source:\n";
-      var_dump($def);
-      echo "\nparses to:\n";
+      echo format_human($def);
+      echo "\nparses to: -->\n";
     }
         
     while($xmlr->read()) {
@@ -154,17 +155,17 @@ class Dictionary {
           $ichild[] = 0;
           
           if(defined("DEBUG")) {
-            echo "new tag: ".end($tags)."\n";
+            echo "<!-- new tag: ".end($tags)." -->\n";
           }
           
           // drain the attributes
           if($xmlr->hasAttributes) {
             if(defined("DEBUG")) {
-              echo "contains attributes:\n";
+              echo "<!-- contains attributes: -->\n";
             }
             while($xmlr->moveToNextAttribute()) {
               if(defined("DEBUG")) {
-                echo "\t".$xmlr->name." => ".$xmlr->value."\n";
+                echo "<!-- \t".$xmlr->name." => ".$xmlr->value." -->\n";
               }
               $attributes[count($attributes) - 1][$xmlr->name] = $xmlr->value;
             }
@@ -178,7 +179,7 @@ class Dictionary {
           Dictionary::parser_endtag($xmlw, $tags, $attributes);
           
           if(defined("DEBUG")) {
-            echo "end tag: ".end($tags)."\n";
+            echo "<!-- end tag: ".end($tags)." -->\n";
           }
           
           array_pop($tags);
@@ -190,8 +191,9 @@ class Dictionary {
         case XMLReader::TEXT:
         case XMLReader::SIGNIFICANT_WHITESPACE:
           if(defined("DEBUG")) {
-            echo "content:";
+            echo "<!-- content: ";
             var_dump($xmlr->value);
+            echo " -->\n";
           }
           $xmlw->text($xmlr->value);
           break;
@@ -206,10 +208,6 @@ class Dictionary {
           break;
         }
       }
-    }
-    
-    if(defined("DEBUG")) {
-      echo "-->\n";
     }
     
     $xmlw->endElement();
@@ -237,7 +235,7 @@ class Dictionary {
     // for normal tags, fill with pre-existent attributes
     if(substr($ltag, 0, 2) != "o:") {
       foreach($attribute as $name => $value) {
-        $xmlw->writeAttributes($name, $value);
+        $xmlw->writeAttribute($name, $value);
       }
     }
 
