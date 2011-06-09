@@ -1,6 +1,7 @@
 <?php
 
 require("lib/simplehtmldom.class");
+error_reporting(E_ALL);
 
 /* ############################################################################### */
 
