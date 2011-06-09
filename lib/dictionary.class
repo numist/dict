@@ -126,7 +126,7 @@ class Dictionary {
     
     $tags = array();
     $attributes = array();
-    $firstsb = true;
+    $context = array();
     $src = null;
     $xmlr = new XMLReader();
     if(!$xmlr->xml($def)) {
@@ -163,7 +163,7 @@ class Dictionary {
           }
           assert('count($tags) == count($attributes)');
           
-          Dictionary::parser_newtag($xmlw, $tags, $attributes, $firstsb);
+          Dictionary::parser_newtag($xmlw, $tags, $attributes, $context);
           
           // intentionally fall-through to END_ELEMENT
           if(!$empty) {
@@ -200,11 +200,16 @@ class Dictionary {
     return $xmlw->flush();
   }
   
-  private static function parser_newtag(&$xmlw, $tags, $attributes, &$firstsb)
+  private static function parser_newtag(&$xmlw, $tags, $attributes, &$context)
   {
     $tag = end($tags);
     $ltag = strtolower($tag);
     $attribute = end($attributes);
+    
+    // initialise the context array if needed
+    if(!array_key_exists("firstsb", $context)) {
+      $context["firstsb"] = true;
+    }
     
     // start tag—if the read tag starts with o:, it's a span.
     if(substr($ltag, 0, 2) == "o:") {
@@ -292,8 +297,8 @@ class Dictionary {
       $xmlw->writeAttribute("style", "display: block; ");
     }
     else if($ltag == "o:sb") {
-      if($firstsb) {
-        $firstsb = false;
+      if($context["firstsb"]) {
+        $context["firstsb"] = false;
         $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; ");
       } else {
         $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; margin-top: 1em;");
