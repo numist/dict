@@ -9,7 +9,8 @@ if(defined("DEBUG")) {
   error_reporting(E_ALL | E_STRICT);
 } else {
   assert_options(ASSERT_ACTIVE, false);
-  error_reporting(0);
+  error_reporting(E_ALL);
+  ini_set("display_errors", "0");
 }
 
 function indent($line, $level) {
