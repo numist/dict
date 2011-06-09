@@ -88,15 +88,17 @@ class Dictionary {
     unset($res);
     
     // get all matching words
-    $sql = "SELECT rowid, * FROM words WHERE type = 'dict' AND ( ";
-    foreach($refs as $ref) {
-      $sql .= "rowid = '".str_replace("'", "''", $ref['wordid'])."' OR ";
+    if(count($refs)) {
+      $sql = "SELECT rowid, * FROM words WHERE type = 'dict' AND ( ";
+      foreach($refs as $ref) {
+        $sql .= "rowid = '".str_replace("'", "''", $ref['wordid'])."' OR ";
+      }
+      $sql = substr($sql, 0, strlen($sql) - 3) . ")";
+      $res = $db->query($sql);
+      assert('is_object($res)');
+      $defs = array_merge($res->fetchAll(), $defs);
+      unset($res);
     }
-    $sql .= "0 )";
-    $res = $db->query($sql);
-    assert('is_object($res)');
-    $defs = array_merge($res->fetchAll(), $defs);
-    unset($res);
 
     // get the word, minus rows we already have.
     // XXX: this is a bit dirty, but it's the easiest way to do it for now (excluding rowids explicitly)
