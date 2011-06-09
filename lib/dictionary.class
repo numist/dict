@@ -4,6 +4,9 @@ global $subent;
 $subent = 0;
 
 class Dictionary {
+  /*
+   * List of basic translations to use on tags when rendering XHTML from the dict XML. Each key represents an XML tag name and each key => value pair within each tag's entry represents an attribute to set on that tag's corresponding output <span>
+   */
   private static $translate = array(
       "o:ent" => array('class' => "def", 'style' => "font-family: Baskerville; "),
       "o:hw" => array('d:priority' => "2", 'd:dhw' => "1", 'style' => "font-size: 24px; "),
@@ -32,25 +35,38 @@ class Dictionary {
       "o:lang" => array('style' => "font-weight: normal; ")
   );
   
+  /*
+   * When a term has been looked up, $term is the phrase that was searched for by the caller.
+   */
   private $term = null;
   public function getterm()
   {
     return $this->term;
   }
 
+  /*
+   * When a term has been looked up, $defs contains an array of row data from sqlite, including the rowid and definition xml.
+   * Element keys: rowid, word, type, data
+   */
   private $defs = null;
   public function getdefs()
   {
     return $this->defs;
   }
 
+  /*
+   * Init a new object. If $term is defined, look up that term immediately.
+   */
   public function Dictionary($term=null)
   {
-    if($term != null) {
+    if($term !== null) {
       $this->lookup($term);
     }
   }
   
+  /*
+   * Looks up the $term in the database $dbfile, including references to the word in definitions (see: pigged -> pig). Once this has been called, the accessor function exposing the term and definitions are useful.
+   */
   public function lookup($term, $dbfile="words.db")
   {
     assert(class_exists('PDO'));
@@ -119,6 +135,9 @@ class Dictionary {
     trigger_error("not implemented", E_USER_ERROR);
   }
   
+  /* 
+   * Parses the $def (formatted as dict-xml) with XMLReader, maintains appropriate state during the callbacks, and calls static member parser functions that generate the final XHTML output fragment using XMLWriter.
+   */
   public static function toHTML($def)
   {
     assert('class_exists("XMLReader")');
@@ -153,6 +172,7 @@ class Dictionary {
         case XMLReader::ELEMENT:
           $tags[] = $xmlr->name;
           $attributes[] = array();
+          // cache whether the element is empty ahead of time, because the result can be different when the current node is an attribute.
           $empty = $xmlr->isEmptyElement;
           
           // drain the attributes
@@ -200,6 +220,9 @@ class Dictionary {
     return $xmlw->flush();
   }
   
+  /*
+   * Called when Dictionary::toHTML encounters a new tag in the definition. This function will begin a new tag in the output XMLWriter, a <span> for <o:.*> tags, or copy the existing tag name and attributes. When appropriate, attributes for <o:.*> tags are written as well.
+   */
   private static function parser_newtag(&$xmlw, $tags, $attributes, &$context)
   {
     $tag = end($tags);
@@ -331,6 +354,9 @@ class Dictionary {
     }
   }
 
+  /*
+   * Called when Dictionary::toHTML encounters the end of a tag in the definition. This function will end the current tag in the output XMLWriter, and may write attributes to the current output node first.
+   */
   private static function parser_endtag(&$xmlw, $tags, $attributes)
   {
     $tag = end($tags);
@@ -348,6 +374,10 @@ class Dictionary {
     $xmlw->endElement();
   }
   
+  /*
+   * Searches $arrays for a key => value pair.
+   * XXX: should also check the tag name, not just attributes.
+   */
   private static function in_attributes($name, $value, $arrays)
   {
     foreach($arrays as $set) {
