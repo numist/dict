@@ -227,6 +227,7 @@ class Dictionary {
   {
     $tag = end($tags);
     $ltag = strtolower($tag);
+    $ltags = Dictionary::strtolower($tags);
     $attribute = end($attributes);
     
     // initialise the context array if needed
@@ -257,18 +258,14 @@ class Dictionary {
      */
     if($ltag == "o:lbl") {
       // lbl does different things based on the parent tag:
-      assert('count($tags > 1)');
-      // XXX: not tested. is it "parent is x" or "ancestor is x"?
-      switch(strtolower($tags[count($tags) - 2])) {
-        case "o:ms":
-          $xmlw->writeAttribute("style", "font-family: LucidaGrande; font-size: 13px; ");
-          break;
-        case "o:ex":
-          $xmlw->writeAttribute("style", "font-weight: normal; ");
-          break;
-        default:
-          $xmlw->writeAttribute("style", "font-size: 14px; ");
-          break;
+      if(in_array("o:ms", $ltags)) {
+        $xmlw->writeAttribute("style", "font-family: LucidaGrande; font-size: 13px; ");
+      }
+      else if(in_array("o:ex", $ltags)) {
+        $xmlw->writeAttribute("style", "font-weight: normal; ");
+      }
+      else {
+        $xmlw->writeAttribute("style", "font-size: 14px; ");
       }
     }
     else if(array_key_exists($ltag, Dictionary::$translate)) {
@@ -386,6 +383,23 @@ class Dictionary {
       }
     }
     return false;
+  }
+
+  private static function strtolower($strs) {
+    $ret = false;
+    if(is_string($strs)) {
+      $ret = strtolower($strs);
+    }
+    else if(is_array($strs)) {
+      $ret = array();
+      foreach($strs as $key => $str) {
+        $ret[$key] = Dictionary::strtolower($str);
+      }
+    }
+    else {
+      trigger_error("Non-string/array passed to strtolower: $strs", E_USER_WARNING);
+    }
+    return $ret;
   }
 }
 
