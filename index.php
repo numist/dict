@@ -1,6 +1,6 @@
 <?php
 
-define("DEBUG", true);
+//define("DEBUG", true);
 
 if(defined("DEBUG")) {
   assert_options(ASSERT_ACTIVE,   true);

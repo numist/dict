@@ -8,7 +8,6 @@ class Dictionary {
       "o:ent" => array('class' => "def", 'style' => "font-family: Baskerville; "),
       "o:hw" => array('d:priority' => "2", 'd:dhw' => "1", 'style' => "font-size: 24px; "),
       "o:hsb" => array('style' => "font-size: 75%; "), // precede innertext with •
-      "o:sb" => array('style' => "display: block; margin-left: 1em; text-indent: -1em; margin-top: 1em; "),
       "o:ps" => array('d:ps' => "1", 'style' => "font-weight: normal; "),
       "o:syntax" => array('style' => "font-weight: normal; "),
       "o:sense" => array('d:abs' => "1", 'style' => "display: block; "),
@@ -83,8 +82,13 @@ class Dictionary {
     $defs = array_merge($res->fetchAll(), $defs);
     unset($res);
 
-    // get the word
-    $sql = "SELECT rowid, * FROM words WHERE type = 'dict' AND word = '".str_replace("'", "''", $term)."'";
+    // get the word, minus rows we already have.
+    // XXX: this is a bit dirty, but it's the easiest way to do it for now (excluding rowids explicitly)
+    $sql = "SELECT rowid, * FROM words WHERE type = 'dict' AND word = '".str_replace("'", "''", $term)."' ";
+    foreach($refs as $ref) {
+      $sql .= "AND rowid != '".str_replace("'", "''", $ref['wordid'])."'";
+    }
+    
     $res = $db->query($sql);
     assert('is_object($res)');
     $defs = array_merge($res->fetchAll(), $defs);
@@ -111,7 +115,7 @@ class Dictionary {
   
   public function similar()
   {
-    // XXX: pspell!
+    // TODO: pspell!
     trigger_error("not implemented", E_USER_ERROR);
   }
   
@@ -122,15 +126,11 @@ class Dictionary {
     
     $tags = array();
     $attributes = array();
-    $ichild = array(0);
+    $firstsb = true;
     $src = null;
     $xmlr = new XMLReader();
     if(!$xmlr->xml($def)) {
       trigger_error("failed to load XML '$def'", E_USER_ERROR);
-    }
-    if(defined("DEBUG")) {
-      $xmlr->setParserProperty(XMLReader::VALIDATE, true);
-      $xmlr->isValid();
     }
     
     $xmlw = new XMLWriter();
@@ -142,6 +142,8 @@ class Dictionary {
 
     if(defined("DEBUG")) {
       echo "<!--\ndef source:\n";
+      echo $def;
+      echo "\nhuman readable:\n";
       echo format_human($def);
       echo "\nparses to: -->\n";
     }
@@ -151,50 +153,33 @@ class Dictionary {
         case XMLReader::ELEMENT:
           $tags[] = $xmlr->name;
           $attributes[] = array();
-          $ichild[count($ichild) - 1]++;
-          $ichild[] = 0;
-          
-          if(defined("DEBUG")) {
-            echo "<!-- new tag: ".end($tags)." -->\n";
-          }
+          $empty = $xmlr->isEmptyElement;
           
           // drain the attributes
           if($xmlr->hasAttributes) {
-            if(defined("DEBUG")) {
-              echo "<!-- contains attributes: -->\n";
-            }
             while($xmlr->moveToNextAttribute()) {
-              if(defined("DEBUG")) {
-                echo "<!-- \t".$xmlr->name." => ".$xmlr->value." -->\n";
-              }
               $attributes[count($attributes) - 1][$xmlr->name] = $xmlr->value;
             }
           }
           assert('count($tags) == count($attributes)');
           
-          Dictionary::parser_newtag($xmlw, $tags, $attributes, $ichild);
-          break;
+          Dictionary::parser_newtag($xmlw, $tags, $attributes, $firstsb);
+          
+          // intentionally fall-through to END_ELEMENT
+          if(!$empty) {
+            break;
+          }
         
         case XMLReader::END_ELEMENT:
           Dictionary::parser_endtag($xmlw, $tags, $attributes);
           
-          if(defined("DEBUG")) {
-            echo "<!-- end tag: ".end($tags)." -->\n";
-          }
-          
           array_pop($tags);
           array_pop($attributes);
-          array_pop($ichild);
           $src = null;
           break;
         
         case XMLReader::TEXT:
         case XMLReader::SIGNIFICANT_WHITESPACE:
-          if(defined("DEBUG")) {
-            echo "<!-- content: ";
-            var_dump($xmlr->value);
-            echo " -->\n";
-          }
           $xmlw->text($xmlr->value);
           break;
         
@@ -215,7 +200,7 @@ class Dictionary {
     return $xmlw->flush();
   }
   
-  private static function parser_newtag(&$xmlw, $tags, $attributes, $ichild)
+  private static function parser_newtag(&$xmlw, $tags, $attributes, &$firstsb)
   {
     $tag = end($tags);
     $ltag = strtolower($tag);
@@ -259,9 +244,7 @@ class Dictionary {
       }
     }
     else if(array_key_exists($ltag, Dictionary::$translate)) {
-      /*
-       * straightforward rewrites, see $translate table for full list
-       */
+      // straightforward rewrites, see $translate table for full list
       foreach(Dictionary::$translate[$ltag] as $name => $value) {
         $xmlw->writeAttribute($name, $value);
       }
@@ -283,8 +266,7 @@ class Dictionary {
        * * "o:gramgrp" => '<span d:priority="2" class="gramGrp" style="font-weight: normal; ">',
        * * "o:formgrp" => '<span class="formGrp" style="font-weight: normal; ">',
        * * "o:vargrp" => '<span class="varGrp" style="font-weight: normal; ">',
-       * * "o:infgrp" => '<span d:priority="2" class="infGrp">',
-       */
+       * * "o:infgrp" => '<span d:priority="2" class="infGrp">', */
       $xmlw->writeAttribute("d:priority", "2");
       $xmlw->writeAttribute("style", "font-weight: normal; ");
     }
@@ -309,17 +291,16 @@ class Dictionary {
       $xmlw->writeAttribute("id", "index_".++$subent);
       $xmlw->writeAttribute("style", "display: block; ");
     }
-    else if(substr($ltag, 0, 2) == "o:") {
-      // default case: set class
-//      trigger_error("no rule for tag ".$tag, E_USER_NOTICE);
+    else if($ltag == "o:sb") {
+      if($firstsb) {
+        $firstsb = false;
+        $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; ");
+      } else {
+        $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; margin-top: 1em;");
+      }
     }
-    
-    // the first o:sb in each o:ent requires special styling.
-    // if this ever fails, it may need to prevent the default rewrite action from taking place first.
-    if ($ltag == "o:sb"
-        && strtolower($tags[count($tags) - 2]) == "o:ent"
-        && $ichild[count($ichild) - 2] == 1) {
-      $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; ") or trigger_error("whyyyyy", E_USER_ERROR);
+    else if(substr($ltag, 0, 2) == "o:" && defined("DEBUG")) {
+      trigger_error("no rule for tag ".$tag, E_USER_NOTICE);
     }
 
     if (Dictionary::in_attributes("class", "lineart", $attributes)) {
