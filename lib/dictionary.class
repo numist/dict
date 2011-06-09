@@ -1,0 +1,406 @@
+<?php
+
+global $subent;
+$subent = 0;
+
+class Dictionary {
+  /*
+   * List of basic translations to use on tags when rendering XHTML from the dict XML. Each key represents an XML tag name and each key => value pair within each tag's entry represents an attribute to set on that tag's corresponding output <span>
+   */
+  private static $translate = array(
+      "o:ent" => array('class' => "def", 'style' => "font-family: Baskerville; "),
+      "o:hw" => array('d:priority' => "2", 'd:dhw' => "1", 'style' => "font-size: 24px; "),
+      "o:hsb" => array('style' => "font-size: 75%; "), // precede innertext with •
+      "o:ps" => array('d:ps' => "1", 'style' => "font-weight: normal; "),
+      "o:syntax" => array('style' => "font-weight: normal; "),
+      "o:sense" => array('d:abs' => "1", 'style' => "display: block; "),
+      "o:ms" => array('style' => "display: block; "),
+      "o:hm" => array('style' => "vertical-align: super; "),
+      "o:sc" => array('style' => "font-variant: small-caps; "),
+      "o:x" => array('style' => "font-weight: 600; font-variant: small-caps; "),
+      "o:inf" => array('style' => "font-weight: 600; "),
+      "o:sn" => array('style' => "font-weight: 600; "),
+      "o:v" => array('style' => "font-weight: 600; "),
+      "o:l" => array('style' => "font-weight: 600; "),
+      "o:f" => array('style' => "font-weight: 600; "),
+      "o:bold" => array('style' => "font-weight: 600; font-style: italic; "),
+      "o:ff" => array('style' => "font-weight: 600; font-style: italic; "),
+      "o:trans" => array('style' => "font-weight: 600; font-style: italic; "),
+      "o:underline" => array('style' => "text-decoration: underline; "),
+      "o:def" => array('style' => "font-weight: normal; "),
+      "o:specuse" => array('d:priority' => "2", 'style' => "display: block; text-indent: 0px; "),
+      "o:encblock" => array('style' => "display: block; margin-top: 1em; margin-bottom: 1em; text-indent: 0px; background-color: rgb(238, 238, 238); padding-top: 0.33em; padding-right: 0.33em; padding-bottom: 0.33em; padding-left: 0.33em; margin-right: 1em; "),
+      "o:ex" => array('d:priority' => "2", 'style' => "font-style: italic; "),
+      "o:date" => array('style' => "font-weight: normal; "),
+      "o:lang" => array('style' => "font-weight: normal; ")
+  );
+  
+  /*
+   * When a term has been looked up, $term is the phrase that was searched for by the caller.
+   */
+  private $term = null;
+  public function getterm()
+  {
+    return $this->term;
+  }
+
+  /*
+   * When a term has been looked up, $defs contains an array of row data from sqlite, including the rowid and definition xml.
+   * Element keys: rowid, word, type, data
+   */
+  private $defs = null;
+  public function getdefs()
+  {
+    return $this->defs;
+  }
+
+  /*
+   * Init a new object. If $term is defined, look up that term immediately.
+   */
+  public function Dictionary($term=null)
+  {
+    if($term !== null) {
+      $this->lookup($term);
+    }
+  }
+  
+  /*
+   * Looks up the $term in the database $dbfile, including references to the word in definitions (see: pigged -> pig). Once this has been called, the accessor function exposing the term and definitions are useful.
+   */
+  public function lookup($term, $dbfile="words.db")
+  {
+    assert(class_exists('PDO'));
+    
+    $this->term = $term;
+    $defs = array();
+
+    try {
+      $db = new PDO("sqlite:$dbfile");
+    } catch (PDOException $e) {
+      trigger_error('Connection failed: ' . $e->getMessage(), E_USER_ERROR);
+    }
+
+    // get all matching refs
+    $sql = "SELECT wordid FROM refs WHERE term = '".str_replace("'", "''", $term)."'";
+    $res = $db->query($sql);
+    assert('is_object($res)');
+    $refs = $res->fetchAll();
+    unset($res);
+    
+    // get all matching words
+    $sql = "SELECT rowid, * FROM words WHERE type = 'dict' AND ( ";
+    foreach($refs as $ref) {
+      $sql .= "rowid = '".str_replace("'", "''", $ref['wordid'])."' OR ";
+    }
+    $sql .= "0 )";
+    $res = $db->query($sql);
+    assert('is_object($res)');
+    $defs = array_merge($res->fetchAll(), $defs);
+    unset($res);
+
+    // get the word, minus rows we already have.
+    // XXX: this is a bit dirty, but it's the easiest way to do it for now (excluding rowids explicitly)
+    $sql = "SELECT rowid, * FROM words WHERE type = 'dict' AND word = '".str_replace("'", "''", $term)."' ";
+    foreach($refs as $ref) {
+      $sql .= "AND rowid != '".str_replace("'", "''", $ref['wordid'])."'";
+    }
+    
+    $res = $db->query($sql);
+    assert('is_object($res)');
+    $defs = array_merge($res->fetchAll(), $defs);
+    unset($res);
+    
+    if(count($defs) <= 1) {
+      $this->defs = $defs;
+      return;
+    }
+    
+    // order-preserving slow sort
+    $this->defs = array();
+    $diff = 0;
+    while(count($this->defs) != count($defs)) {
+        for($i = 0; $i < count($defs); $i++)
+            if(levenshtein($term, $defs[$i]['word']) == $diff)
+                $this->defs[] = $defs[$i];
+
+        $diff++;
+    }
+
+    unset($defs);
+  }
+  
+  public function similar()
+  {
+    // TODO: pspell!
+    trigger_error("not implemented", E_USER_ERROR);
+  }
+  
+  /* 
+   * Parses the $def (formatted as dict-xml) with XMLReader, maintains appropriate state during the callbacks, and calls static member parser functions that generate the final XHTML output fragment using XMLWriter.
+   */
+  public static function toHTML($def)
+  {
+    assert('class_exists("XMLReader")');
+    assert('class_exists("XMLWriter")');
+    
+    $tags = array();
+    $attributes = array();
+    $context = array();
+    $src = null;
+    $xmlr = new XMLReader();
+    if(!$xmlr->xml($def)) {
+      trigger_error("failed to load XML '$def'", E_USER_ERROR);
+    }
+    
+    $xmlw = new XMLWriter();
+    $xmlw->openMemory();
+    $xmlw->setIndent(false);
+    $xmlw->startElement("div");
+    $xmlw->writeAttribute("class", "def");
+    $xmlw->writeAttribute("style", "margin-top: 1em; ");
+
+    if(defined("DEBUG")) {
+      echo "<!--\ndef source:\n";
+      echo $def;
+      echo "\nhuman readable:\n";
+      echo format_human($def);
+      echo "\nparses to: -->\n";
+    }
+        
+    while($xmlr->read()) {
+      switch($xmlr->nodeType) {
+        case XMLReader::ELEMENT:
+          $tags[] = $xmlr->name;
+          $attributes[] = array();
+          // cache whether the element is empty ahead of time, because the result can be different when the current node is an attribute.
+          $empty = $xmlr->isEmptyElement;
+          
+          // drain the attributes
+          if($xmlr->hasAttributes) {
+            while($xmlr->moveToNextAttribute()) {
+              $attributes[count($attributes) - 1][$xmlr->name] = $xmlr->value;
+            }
+          }
+          assert('count($tags) == count($attributes)');
+          
+          Dictionary::parser_newtag($xmlw, $tags, $attributes, $context);
+          
+          // intentionally fall-through to END_ELEMENT
+          if(!$empty) {
+            break;
+          }
+        
+        case XMLReader::END_ELEMENT:
+          Dictionary::parser_endtag($xmlw, $tags, $attributes);
+          
+          array_pop($tags);
+          array_pop($attributes);
+          $src = null;
+          break;
+        
+        case XMLReader::TEXT:
+        case XMLReader::SIGNIFICANT_WHITESPACE:
+          $xmlw->text($xmlr->value);
+          break;
+        
+        default: {
+          if(strlen(trim($xmlr->readOuterXML())) == 0) {
+            $node = "in <".end($tags  ).">";
+          } else {
+            $node = ": ".$xmlr->readOuterXML();
+          }
+          trigger_error("unsupported node type ".$xmlr->nodeType." ".$node, E_USER_ERROR);
+          break;
+        }
+      }
+    }
+    
+    $xmlw->endElement();
+    
+    return $xmlw->flush();
+  }
+  
+  /*
+   * Called when Dictionary::toHTML encounters a new tag in the definition. This function will begin a new tag in the output XMLWriter, a <span> for <o:.*> tags, or copy the existing tag name and attributes. When appropriate, attributes for <o:.*> tags are written as well.
+   */
+  private static function parser_newtag(&$xmlw, $tags, $attributes, &$context)
+  {
+    $tag = end($tags);
+    $ltag = strtolower($tag);
+    $ltags = Dictionary::strtolower($tags);
+    $attribute = end($attributes);
+    
+    // initialise the context array if needed
+    if(!array_key_exists("firstsb", $context)) {
+      $context["firstsb"] = true;
+    }
+    
+    // start tag—if the read tag starts with o:, it's a span.
+    if(substr($ltag, 0, 2) == "o:") {
+      $xmlw->startElement("span");
+      if($ltag != "o:ent") {
+        // o:ent translates to a different class, see Dictionary::$translate
+        $xmlw->writeAttribute("class", substr($tag, 2));
+      }
+    } else {
+      $xmlw->startElement($tag);
+    }
+    
+    // for normal tags, fill with pre-existent attributes
+    if(substr($ltag, 0, 2) != "o:") {
+      foreach($attribute as $name => $value) {
+        $xmlw->writeAttribute($name, $value);
+      }
+    }
+
+    /*
+     * rewriting rules:
+     */
+    if($ltag == "o:lbl") {
+      // lbl does different things based on the parent tag:
+      if(in_array("o:ms", $ltags)) {
+        $xmlw->writeAttribute("style", "font-family: LucidaGrande; font-size: 13px; ");
+      }
+      else if(in_array("o:ex", $ltags)) {
+        $xmlw->writeAttribute("style", "font-weight: normal; ");
+      }
+      else {
+        $xmlw->writeAttribute("style", "font-size: 14px; ");
+      }
+    }
+    else if(array_key_exists($ltag, Dictionary::$translate)) {
+      // straightforward rewrites, see $translate table for full list
+      foreach(Dictionary::$translate[$ltag] as $name => $value) {
+        $xmlw->writeAttribute($name, $value);
+      }
+      if($ltag == "o:hsb") {
+        $xmlw->text("•");
+      }
+    }
+    else if(substr($ltag, -5) == 'block') {
+      // o:.*block tags all share a similar structure, so they can be transformed with one rule
+      $xmlw->writeAttribute("d:priority", "2");
+      $xmlw->writeAttribute("style", "display: block; margin-top: 1em; text-indent: 0px; ");
+    }
+    else if(substr($ltag, -3) == 'grp') {
+      /* o:.*grp tags all share a similar structure, so they can be transformed with one rule
+       *
+       * examples seen in the wild:
+       * * "o:prongrp" => '<span class="pronGrp">',
+       * * "o:hwgrp" => '<span class="hwGrp">',
+       * * "o:gramgrp" => '<span d:priority="2" class="gramGrp" style="font-weight: normal; ">',
+       * * "o:formgrp" => '<span class="formGrp" style="font-weight: normal; ">',
+       * * "o:vargrp" => '<span class="varGrp" style="font-weight: normal; ">',
+       * * "o:infgrp" => '<span d:priority="2" class="infGrp">', */
+      $xmlw->writeAttribute("d:priority", "2");
+      $xmlw->writeAttribute("style", "font-weight: normal; ");
+    }
+    else if(substr($ltag, strlen($ltag) - 5) == 'label') {
+      // o:.*label tags all share a similar structure, so they can be transformed with one rule
+      $xmlw->writeAttribute("style", "font-family: HelveticaNeue-Light; font-size: 13px; ");
+    }
+    // and some tags are just plain weird and require some extra logic
+    else if($ltag == "o:pr") {
+      $type = $attribute["type"];
+      $xmlw->writeAttribute("d:pr", $type);
+      $xmlw->writeAttribute("type", $type);
+      if($type != "US_IPA") {
+        $xmlw->writeAttribute("style", "font-family: HiraMinPro-W3; display: none; ");
+      }
+      else {
+        $xmlw->writeAttribute("style", "font-family: HiraMinPro-W3; ");
+      }
+    }
+    else if($ltag == "o:subent") {
+      global $subent;
+      $xmlw->writeAttribute("id", "index_".++$subent);
+      $xmlw->writeAttribute("style", "display: block; ");
+    }
+    else if($ltag == "o:sb") {
+      if($context["firstsb"]) {
+        $context["firstsb"] = false;
+        $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; ");
+      } else {
+        $xmlw->writeAttribute("style", "display: block; margin-left: 1em; text-indent: -1em; margin-top: 1em;");
+      }
+    }
+    else if(substr($ltag, 0, 2) == "o:" && defined("DEBUG")) {
+      trigger_error("no rule for tag ".$tag, E_USER_NOTICE);
+    }
+
+    if (Dictionary::in_attributes("class", "lineart", $attributes)) {
+      // some elements within a div class="lineart" (including itself) get special handling.
+      if ($ltag == "div"
+          && array_key_exists("class", $attribute)
+          && $attribute["class"] == "lineart") {
+        $xmlw->writeAttribute("style", 
+                              "float: right; padding-top: 1em; ".
+                              "padding-right: 0em; padding-bottom: 0.5em; ".
+                              "padding-left: 1.5em; background-color: white; ".
+                              "max-width: 33%; ");
+      }
+      else if ($ltag == "div") {
+        $xmlw->writeAttribute("style",
+                              "display: block; text-align: center; ".
+                              "font-weight: 600; font-size: 13px; ");
+      }
+      else if ($ltag == "a") {
+        $xmlw->writeAttribute("style",
+                              "color: rgb(41, 113, 167); text-decoration: none; ");
+      }
+    }
+  }
+
+  /*
+   * Called when Dictionary::toHTML encounters the end of a tag in the definition. This function will end the current tag in the output XMLWriter, and may write attributes to the current output node first.
+   */
+  private static function parser_endtag(&$xmlw, $tags, $attributes)
+  {
+    $tag = end($tags);
+    $attribute = end($attributes);
+    
+    // if we are closing an image, add a style and width attribute
+    if($tag == "img") {
+      assert('array_key_exists("src", $attribute)');
+      assert('file_exists($attribute["src"])');
+      $xmlw->writeAttribute("style", 'display: block; width: 100%; margin-top: 1em; ');
+      $size = getimagesize($attribute["src"]);
+      $xmlw->writeAttribute("width", $size[0]);
+    }
+    
+    $xmlw->endElement();
+  }
+  
+  /*
+   * Searches $arrays for a key => value pair.
+   * XXX: should also check the tag name, not just attributes.
+   */
+  private static function in_attributes($name, $value, $arrays)
+  {
+    foreach($arrays as $set) {
+      if(array_key_exists($name, $set) && $set[$name] == $value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static function strtolower($strs) {
+    $ret = false;
+    if(is_string($strs)) {
+      $ret = strtolower($strs);
+    }
+    else if(is_array($strs)) {
+      $ret = array();
+      foreach($strs as $key => $str) {
+        $ret[$key] = Dictionary::strtolower($str);
+      }
+    }
+    else {
+      trigger_error("Non-string/array passed to strtolower: $strs", E_USER_WARNING);
+    }
+    return $ret;
+  }
+}
+
+?>
