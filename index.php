@@ -17,10 +17,13 @@ require("lib/functions.inc");
 require("lib/dictionary.class");
 
 $words = array();
-    
+
 if(count($_GET) > 0) {
-  foreach($_GET as $name => $blank) {
-    $words[] = $name;
+  $query = $_SERVER['QUERY_STRING'];
+  $params = [];
+  foreach (explode('&', $query) as $pair) {
+    list($key, $unused) = explode('=', $pair);
+    $words[] = urldecode($key);
   }
 }
 
