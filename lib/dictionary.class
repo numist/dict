@@ -203,7 +203,16 @@ class Dictionary {
         
         case XMLReader::TEXT:
         case XMLReader::SIGNIFICANT_WHITESPACE:
-          $xmlw->text($xmlr->value);
+          if($tags[count($tags) - 1] == "o:x") {
+            // Translate " foo bar " to " <a href="/define/?foo%20bar">foo bar</a> " and write (note the whitespace)
+            $xmlw->startElement("a");
+            $xmlw->writeAttribute("href", "/define/?".urlencode(trim($xmlr->value)));
+            $xmlw->text(trim($xmlr->value));
+            $xmlw->endElement();
+            $xmlw->text(" ");
+          } else {
+            $xmlw->text($xmlr->value);
+          }
           break;
         
         default: {
