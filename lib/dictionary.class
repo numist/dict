@@ -24,6 +24,7 @@ class Dictionary {
       "o:l" => array('style' => "font-weight: 600; "),
       "o:f" => array('style' => "font-weight: 600; "),
       "o:bold" => array('style' => "font-weight: 600; font-style: italic; "),
+      "o:italic" => array('style' => "font-style: italic"),
       "o:ff" => array('style' => "font-weight: 600; font-style: italic; "),
       "o:trans" => array('style' => "font-weight: 600; font-style: italic; "),
       "o:underline" => array('style' => "text-decoration: underline; "),
